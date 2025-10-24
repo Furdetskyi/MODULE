@@ -1,0 +1,71 @@
+>> %% МОДЕЛЮВАННЯ ДЕРЕВА РІШЕНЬ ДЛЯ МОНІТОРИНГУ АКТИВНОСТІ КОРИСТУВАЧІВ
+% Тема: "Моніторинг активності користувачів електронної бібліотеки"
+% Автор: Фурдецький Валентин
+% Мова: MATLAB
+
+clc; clear; close all;
+
+%% 1. Генерація синтетичних даних
+n = 400;
+
+visits_per_week    = poissrnd(3, [n 1]);      % кількість відвідувань за тиждень
+downloads_per_week = poissrnd(1, [n 1]);      % кількість завантажень
+avg_session_min    = normrnd(12, 6, [n 1]);   % середня тривалість сесії
+searches_per_week  = poissrnd(4, [n 1]);      % кількість пошуків
+saved_books        = binornd(5, 0.2, [n 1]);  % збережені книги
+reviews_posted     = binornd(2, 0.05, [n 1]); % опубліковані відгуки
+last_login_days    = exprnd(10, [n 1]);       % днів від останнього входу
+
+% обмеження значень
+avg_session_min(avg_session_min < 1) = 1;
+last_login_days(last_login_days > 365) = 365;
+
+%% 2. Формування цільової змінної (active)
+score = 0.4 * (visits_per_week >= 3) + ...
+        0.25 * (downloads_per_week >= 1) + ...
+        0.2 * (avg_session_min >= 10) + ...
+        0.1 * (searches_per_week >= 3) + ...
+        0.05 * (last_login_days <= 7) + ...
+        0.1 * randn(n,1); % додати шум
+
+active = score > 0.5; % 1 - активний, 0 - неактивний
+
+%% 3. Формування таблиці даних
+data = table(visits_per_week, downloads_per_week, avg_session_min, ...
+             searches_per_week, saved_books, reviews_posted, ...
+             last_login_days, active);
+
+%% 4. Розділення на навчальну і тестову вибірки
+cv = cvpartition(height(data), 'HoldOut', 0.25);
+trainData = data(training(cv), :);
+testData  = data(test(cv), :);
+
+%% 5. Навчання дерева рішень
+tree = fitctree(trainData, 'active', 'MaxNumSplits', 15, 'PredictorSelection', 'allsplits');
+
+%% 6. Прогнозування і оцінка
+yPred = predict(tree, testData);
+confMat = confusionmat(testData.active, yPred);
+accuracy = sum(diag(confMat)) / sum(confMat(:));
+
+fprintf('Точність моделі: %.2f%%\n', accuracy*100);
+disp('Матриця сплутування:');
+disp(confMat);
+
+%% 7. Візуалізація дерева
+figure;
+view(tree, 'Mode', 'graph');
+title('Дерево рішень для моніторингу активності користувачів');
+
+%% 8. Важливість ознак
+imp = predictorImportance(tree);
+figure;
+bar(imp);
+title('Важливість ознак');
+xlabel('Ознака');
+ylabel('Вплив на рішення');
+set(gca, 'XTickLabel', tree.PredictorNames, 'XTickLabelRotation', 30);
+
+%% 9. Аналіз правил прийняття рішень
+disp('--- Основні правила прийняття рішень ---');
+view(tree, 'Mode', 'text');
